@@ -1,8 +1,11 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox,filedialog
 from bs4 import BeautifulSoup
 import requests
 from tkhtmlview import HTMLScrolledText
+import os
+import sys
+import json
 
 def extract_element(soup,name:str,class_:str):
     data=None
@@ -42,7 +45,7 @@ class FlashcardApp:
     def __init__(self, root, words):
         self.root = root
         self.root.title("Flashcard App")
-        self.root.geometry("600x400")  # Initial size, will scale with window resizing
+        self.root.geometry("800x600")  # Initial size, will scale with window resizing
 
         # List of words and their meanings
         self.words = words
@@ -50,10 +53,17 @@ class FlashcardApp:
         self.is_flipped = False
         self.definition_html = ""  # To store HTML content for the definition
         self.current_word = self.words[self.current_index][0]
+        self.wordSrcVar=tk.StringVar(value="browse a word source")
+        self.configFilePath="configs.json"
+        self.configJson = self.load_config_file()
 
+        if(self.varify_source_file(self.configJson['word_src_path'])):
+            self.wordSrcVar.set(self.configJson["word_src_path"])
+        
         # Configure grid layout to only expand the "Word and Meaning" area
         self.root.grid_rowconfigure(0, weight=2)  # More space for word display
         self.root.grid_rowconfigure(1, weight=0)  # Buttons
+        self.root.grid_rowconfigure(2, weight=0)  # src file
 
         # Column configurations:
         self.root.grid_columnconfigure(0, weight=0)  # Listbox column (no expansion)
@@ -62,30 +72,29 @@ class FlashcardApp:
 
         # Word List Section (0,0) and (1,0)
         self.word_listbox = tk.Listbox(self.root, font=("Arial", 14), height=15)
-        self.word_listbox.grid(row=0, column=0, rowspan=2, padx=5, pady=10, sticky="nsew")
+        self.word_listbox.grid(row=0, column=0, rowspan=3, padx=5, pady=10, sticky="nsew")
 
         # Create a Scrollbar for the Listbox
         self.scrollbar = tk.Scrollbar(self.root, orient=tk.VERTICAL, command=self.word_listbox.yview, width=15)
-        self.scrollbar.grid(row=0, column=1, rowspan=2, sticky="nsew", pady=10)  # Place scrollbar next to listbox
+        self.scrollbar.grid(row=0, column=1, rowspan=3, sticky="nsew", pady=10)  # Place scrollbar next to listbox
 
         # Link the Listbox with the scrollbar
         self.word_listbox.config(yscrollcommand=self.scrollbar.set)
 
-        # Add words to the Listbox
-        i = 1
-        for word, _ in self.words:
-            self.word_listbox.insert(tk.END, f"{i}. {word}")
-            i = i + 1
-
         # Word and Meaning Display (0,2)
-        # self.card_text = tk.Text(self.root, wrap=tk.WORD, font=("Arial", 14), height=8, width=40, bg="#f4f4f4", bd=2, padx=10, pady=10)
         self.card_text = HTMLScrolledText(root, html="")
         self.card_text.grid(row=0, column=2, padx=10, pady=10, sticky="nsew")
 
-        # Add a Scrollbar for the Text widget
-        # self.text_scrollbar = tk.Scrollbar(self.root, orient=tk.VERTICAL, command=self.card_text.yview)
-        # self.text_scrollbar.grid(row=0, column=3, rowspan=2, sticky="ns", pady=10)
-        # self.card_text.config(yscrollcommand=self.text_scrollbar.set)
+        # Frame for words text browser entry
+        wordSrcFrame = tk.Frame(self.root)
+        wordSrcFrame.grid(row=2,column=2,padx=5,pady=5,sticky='nsew')
+        
+        
+        self.browseButton = tk.Button(wordSrcFrame,text="Browse",command=self.browse_src_file)
+        self.browseButton.pack(side='left',padx=2) 
+        
+        self.srcLabel = tk.Label(wordSrcFrame,textvariable=self.wordSrcVar,justify='left',state='disabled')
+        self.srcLabel.pack(padx=5,fill= 'x')
 
         #frame for buttons
         buttonFrame = tk.Frame(root)
@@ -96,15 +105,10 @@ class FlashcardApp:
         self.prev_button.pack(side='left',padx=5)
 
         self.flip_button = tk.Button(buttonFrame, text="Flip", command=self.flip_card)
-        # self.flip_button.grid(row=1, column=2, padx=80, pady=10, sticky="e")
         self.flip_button.pack(side='left',padx=5)
 
         self.next_button = tk.Button(buttonFrame, text="Next", command=self.show_next_word)
-        # self.next_button.grid(row=1, column=2, padx=155, pady=10, sticky="e")
         self.next_button.pack(side='left',padx=5)
-
-        # Initialize the card with the first word
-        self.update_card()
 
         # Bind the Listbox selection event to update the flashcard
         self.word_listbox.bind('<<ListboxSelect>>', self.on_word_select)
@@ -195,6 +199,25 @@ class FlashcardApp:
         # Return the final HTML output
         return output_html
 
+    def load_config_file(self):
+        with open(self.configFilePath,mode="r") as configFile:
+            self.configJson = json.load(configFile)
+            return self.configJson
+        return None
+    
+    def write_config_file(self,configs:dict):
+        with open(self.configFilePath,"w") as configFile:
+            json.dump(configs,configFile)
+
+    def varify_source_file(self,path):
+        status = False
+        try:
+            status=os.path.exists(path)
+        except Exception as e:
+            messagebox.showerror("Error","unable to find word list")
+        finally:
+            return status
+
     def get_word_def(self,word):
         def_raw=self.get_word_meaning(word)
         formatted_def = self.convert_html_to_custom_format(def_raw)
@@ -226,6 +249,22 @@ class FlashcardApp:
         else:
             return f"Failed to retrieve the page. Status code: {response.status_code}"
 
+    def browse_src_file(self):
+        path = filedialog.askopenfilename(
+            title="Select a word source file",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+            )
+        if(not path):
+            return
+        if(not self.varify_source_file(path)):
+            return
+        self.wordSrcVar.set(path)
+        words=load_words(path)
+        if(words):
+            self.LoadList(words)
+            self.configJson['word_src_path']=path
+            self.write_config_file(self.configJson)
+        print(self.wordSrcVar)
     def update_card(self):
         """Update the card with the current word or meaning."""
         word, meaning = self.words[self.current_index]
@@ -276,6 +315,12 @@ class FlashcardApp:
             self.current_index = selected_index[0]
             self.is_flipped = True
             self.update_card()
+    
+    def LoadList(self,word):
+        i = 1
+        for word, _ in self.words:
+            self.word_listbox.insert(tk.END, f"{i}. {word}")
+            i = i + 1
 
 def load_words(file_name):
     """Load words and their meanings from a file."""
@@ -287,17 +332,29 @@ def load_words(file_name):
                     word, meaning = line.strip().split(" - ", 1)
                     words.append((word, meaning))
     except FileNotFoundError:
-        messagebox.showerror("File Not Found", f"The file {file_name} was not found.")
+        messagebox.showerror("File Not Found", f"The file {file_name} was not found!.")
+    except Exception as e:
+        messagebox.showerror("Error",f"unable to load {file_name}: {e} ")
     return words
 
 if __name__ == "__main__":
+
+    # Determine if we are running as a PyInstaller bundle
+    if getattr(sys, 'frozen', False):  # Running as a bundled app
+        # If running as an exe, use sys._MEIPASS to get the correct path
+        base_path = sys._MEIPASS
+    else:  # Running as a script
+        base_path = os.path.dirname(os.path.abspath(__file__))
+
     # Load words from the text file
-    words = load_words("words.txt")
-    
+    file_path = os.path.join(base_path, 'words.txt')
+    words = load_words(file_path)
     if words:
         # Create the main application window
         root = tk.Tk()
         app = FlashcardApp(root, words)
+        # app.update_card()
+        # app.LoadList(word=words)
         root.mainloop()
     else:
         print("No words to display.")
