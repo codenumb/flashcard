@@ -42,24 +42,46 @@ def get_word_definition(word):
         return f"Failed to retrieve the page. Error: {e}"
 
 class FlashcardApp:
-    def __init__(self, root, words):
-        self.root = root
-        self.root.title("Flashcard App")
-        self.root.geometry("800x600")  # Initial size, will scale with window resizing
+    def __init__(self):
 
         # List of words and their meanings
-        self.words = words
+        self.words = []
         self.current_index = 0
         self.is_flipped = False
         self.definition_html = ""  # To store HTML content for the definition
-        self.current_word = self.words[self.current_index][0]
-        self.wordSrcVar=tk.StringVar(value="browse a word source")
-        self.configFilePath="configs.json"
-        self.configJson = self.load_config_file()
+        self.current_word = ''
+        self.lines = []
 
-        if(self.varify_source_file(self.configJson['word_src_path'])):
-            self.wordSrcVar.set(self.configJson["word_src_path"])
+        if getattr(sys, 'frozen', False):  # Running as a bundled app
+            # If running as an exe, use sys._MEIPASS to get the correct path
+            base_path = sys._MEIPASS            
+        else:  # Running as a script
+            base_path = os.path.dirname(os.path.abspath(__file__))
         
+        self.configFilePath = os.path.join(base_path, 'configs.json')
+        self.configJson = self.loadConfigFile()
+                
+        #create GUI
+        self.initGUI()
+
+        if(self.verifySourceFile(self.configJson["word_src_path"])):
+            self.wordSrcTkVar.set((self.configJson["word_src_path"]))
+
+        #read word src file
+        self.readWordSrcFile(self.configJson["word_src_path"])
+
+        #load words into UI
+        self.LoadList()
+
+        print("done init")
+        
+    def initGUI(self):
+        self.root = tk.Tk()
+        self.root.title("Flashcard App")
+        self.root.geometry("800x600")  # Initial size, will scale with window resizing
+        self.wordSrcTkVar=tk.StringVar(value="browse a word source")
+        self.newWord=tk.StringVar(value="")
+
         # Configure grid layout to only expand the "Word and Meaning" area
         self.root.grid_rowconfigure(0, weight=2)  # More space for word display
         self.root.grid_rowconfigure(1, weight=0)  # Buttons
@@ -72,35 +94,48 @@ class FlashcardApp:
 
         # Word List Section (0,0) and (1,0)
         self.word_listbox = tk.Listbox(self.root, font=("Arial", 14), height=15)
-        self.word_listbox.grid(row=0, column=0, rowspan=3, padx=5, pady=10, sticky="nsew")
+        self.word_listbox.grid(row=0, column=0, rowspan=2, padx=5, pady=10, sticky="nsew")
 
         # Create a Scrollbar for the Listbox
         self.scrollbar = tk.Scrollbar(self.root, orient=tk.VERTICAL, command=self.word_listbox.yview, width=15)
-        self.scrollbar.grid(row=0, column=1, rowspan=3, sticky="nsew", pady=10)  # Place scrollbar next to listbox
+        self.scrollbar.grid(row=0, column=1, rowspan=2, sticky="nsew", pady=10)  # Place scrollbar next to listbox
 
         # Link the Listbox with the scrollbar
         self.word_listbox.config(yscrollcommand=self.scrollbar.set)
 
+        # Frame for add new word
+        addWordFrame = tk.Frame(self.root)
+        addWordFrame.grid(row=2,column=0,padx=5,pady=5,sticky='nsew')
+
+        self.addWordEntry = tk.Entry(addWordFrame,textvariable=self.newWord,justify='left')
+        self.addWordEntry.pack(side=tk.LEFT,padx=5)
+
+        self.addWordButton = tk.Button(addWordFrame,text="Add",command=self.addNewWord)
+        self.addWordButton.pack(padx=2)
+
         # Word and Meaning Display (0,2)
-        self.card_text = HTMLScrolledText(root, html="")
+        self.card_text = HTMLScrolledText(self.root, html="")
         self.card_text.grid(row=0, column=2, padx=10, pady=10, sticky="nsew")
 
         # Frame for words text browser entry
         wordSrcFrame = tk.Frame(self.root)
         wordSrcFrame.grid(row=2,column=2,padx=5,pady=5,sticky='nsew')
         
-        
         self.browseButton = tk.Button(wordSrcFrame,text="Browse",command=self.browse_src_file)
-        self.browseButton.pack(side='left',padx=2) 
+        self.browseButton.pack(side='left',padx=2,anchor=tk.CENTER) 
         
-        self.srcLabel = tk.Label(wordSrcFrame,textvariable=self.wordSrcVar,justify='left',state='disabled')
-        self.srcLabel.pack(padx=5,fill= 'x')
+        self.srcLabel = tk.Label(wordSrcFrame,textvariable=self.wordSrcTkVar,justify='left',
+                                 state='disabled', borderwidth=2, relief=tk.FLAT)
+        self.srcLabel.pack(padx=2,side='left',anchor=tk.CENTER)
 
         #frame for buttons
-        buttonFrame = tk.Frame(root)
+        buttonFrame = tk.Frame(self.root)
         buttonFrame.grid(row=1, column=2, padx=50, pady=5, sticky="e")
 
         # Buttons for actions (1,1), (1,2), (1,3)
+        self.rem_button = tk.Button(buttonFrame, text="remove", command=self.removeWord,state="disabled")
+        self.rem_button.pack(side='left',padx=5)
+
         self.prev_button = tk.Button(buttonFrame, text="Previous", command=self.show_previous_word)
         self.prev_button.pack(side='left',padx=5)
 
@@ -112,7 +147,7 @@ class FlashcardApp:
 
         # Bind the Listbox selection event to update the flashcard
         self.word_listbox.bind('<<ListboxSelect>>', self.on_word_select)
-
+        
     def convert_html_to_custom_format(self,html_content):
         # Parse the HTML content using BeautifulSoup
         soup = BeautifulSoup(html_content, 'html.parser')
@@ -199,17 +234,47 @@ class FlashcardApp:
         # Return the final HTML output
         return output_html
 
-    def load_config_file(self):
-        with open(self.configFilePath,mode="r") as configFile:
-            self.configJson = json.load(configFile)
-            return self.configJson
-        return None
+    def loadConfigFile(self):
+        with open(self.configFilePath,mode="r+") as configFile:
+            try:
+                self.configJson = json.load(configFile)
+            except Exception as e:
+                self.configJson={}
+            finally:
+                return self.configJson
+        
+    def addToWordFile(self,word): 
+        self.lines.append(word)
+        with open(self.configJson['word_src_path'], "w") as srcFile:
+            srcFile.writelines(self.lines)
+
+    def removeFromWordFile(self,word,index):
+        if(word in self.lines[index]):
+                self.lines.pop(index)
+        with open(self.configJson['word_src_path'], "w") as srcFile:
+            srcFile.writelines(self.lines)
+
+    def addNewWord(self):
+        word=self.addWordEntry.get()
+        self.addToWordFile(f'{word}\n')
+        self.readWordSrcFile(self.configJson['word_src_path'])
+        self.LoadList()
     
+    def removeWord(self):
+        remWord,_=self.words[self.current_index]
+        for word,_ in self.words:
+            if(word == remWord):
+                self.removeFromWordFile(word,self.current_index)
+                self.readWordSrcFile(self.configJson['word_src_path'])
+                self.LoadList()
+                self.rem_button.configure(state="disabled")
+                break
+
     def write_config_file(self,configs:dict):
-        with open(self.configFilePath,"w") as configFile:
+        with open(self.configFilePath,"r+") as configFile:
             json.dump(configs,configFile)
 
-    def varify_source_file(self,path):
+    def verifySourceFile(self,path):
         status = False
         try:
             status=os.path.exists(path)
@@ -256,22 +321,30 @@ class FlashcardApp:
             )
         if(not path):
             return
-        if(not self.varify_source_file(path)):
+        if(not self.verifySourceFile(path)):
             return
-        self.wordSrcVar.set(path)
-        words=load_words(path)
-        if(words):
-            self.LoadList(words)
-            self.configJson['word_src_path']=path
-            self.write_config_file(self.configJson)
-        print(self.wordSrcVar)
+        self.wordSrcTkVar.set(path)
+
+        self.configJson['word_src_path']=path
+
+        #read word src file
+        self.readWordSrcFile(self.configJson["word_src_path"])
+
+        #load words into UI
+        self.LoadList()
+
+        #write src file path to config file
+        self.write_config_file(self.configJson)
+
+        print(self.wordSrcTkVar)
+    
     def update_card(self):
         """Update the card with the current word or meaning."""
         word, meaning = self.words[self.current_index]
         self.definition_html = self.get_word_def(word)
         self.card_text.delete(1.0, tk.END)  # Clear previous content
         if self.is_flipped:
-            print(self.definition_html)
+            # print(self.definition_html)
             self.card_text.set_html(self.definition_html)
         else:
             self.card_text.set_html( word)
@@ -315,46 +388,65 @@ class FlashcardApp:
             self.current_index = selected_index[0]
             self.is_flipped = True
             self.update_card()
+            self.rem_button.configure(state="active")
     
-    def LoadList(self,word):
+    def LoadList(self):
         i = 1
+        self.word_listbox.delete(0,tk.END)
         for word, _ in self.words:
             self.word_listbox.insert(tk.END, f"{i}. {word}")
             i = i + 1
+        print("done loading")
 
-def load_words(file_name):
-    """Load words and their meanings from a file."""
-    words = []
-    try:
+    def readWordSrcFile(self,file_name):
+        """Load words and their meanings from a file."""
+
+        #check if file path is correct
+        if(not self.verifySourceFile(file_name)):
+            return
+
         with open(file_name, "r") as file:
-            for line in file:
-                if " - " in line:
-                    word, meaning = line.strip().split(" - ", 1)
-                    words.append((word, meaning))
-    except FileNotFoundError:
-        messagebox.showerror("File Not Found", f"The file {file_name} was not found!.")
-    except Exception as e:
-        messagebox.showerror("Error",f"unable to load {file_name}: {e} ")
-    return words
+            self.lines = file.readlines()
+
+        words = []
+        try:
+            with open(file_name, "r") as file:
+                for index,line in enumerate(file):
+                    if(line == '\n'):
+                        self.lines.pop(index)
+                    if " - " in line:
+                        word, meaning = line.strip().split(" - ", 1)
+                        words.append((word, meaning))
+                    else:
+                        word= line.strip()
+                        meaning=""
+                        words.append((word,meaning))
+        except FileNotFoundError:
+            messagebox.showerror("File Not Found", f"The file {file_name} was not found!.")
+        except Exception as e:
+            messagebox.showerror("Error",f"unable to load {file_name}: {e} ")
+        self.words = words
 
 if __name__ == "__main__":
 
     # Determine if we are running as a PyInstaller bundle
-    if getattr(sys, 'frozen', False):  # Running as a bundled app
-        # If running as an exe, use sys._MEIPASS to get the correct path
-        base_path = sys._MEIPASS
-    else:  # Running as a script
-        base_path = os.path.dirname(os.path.abspath(__file__))
+    # if getattr(sys, 'frozen', False):  # Running as a bundled app
+    #     # If running as an exe, use sys._MEIPASS to get the correct path
+    #     base_path = sys._MEIPASS
+    # else:  # Running as a script
+    #     base_path = os.path.dirname(os.path.abspath(__file__))
 
     # Load words from the text file
-    file_path = os.path.join(base_path, 'words.txt')
-    words = load_words(file_path)
-    if words:
-        # Create the main application window
-        root = tk.Tk()
-        app = FlashcardApp(root, words)
-        # app.update_card()
-        # app.LoadList(word=words)
-        root.mainloop()
-    else:
-        print("No words to display.")
+    # file_path = os.path.join(base_path, 'words.txt')
+    # words = load_words(file_path)
+    # if words:
+    #     # Create the main application window
+    #     root = tk.Tk()
+    #     app = FlashcardApp(root)
+    #     # app.update_card()
+    #     # app.LoadList(word=words)
+    #     root.mainloop()
+    # else:
+    #     print("No words to display.")
+    app = FlashcardApp()
+    app.root.mainloop()

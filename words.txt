@@ -4,7 +4,6 @@ rigorous - detailed or thorough
 rehearse - practice
 allege - blame
 convict - criminal (noun) or criminally charging someone (verb)
-testify - to bear witness
 verdict - final decision
 adore - appreciate
 envy - be jealous of someone (verb)
@@ -38,7 +37,6 @@ soak - make wet in the water
 timid - shy
 urge - persuade
 agitate - disturb
-absolute - the most or the greatest
 classify - to attach a name to something
 scaffolding - outer structure
 supplant - replace
@@ -348,7 +346,6 @@ resentful - hateful of somebody
 abhor - have disgust for something (verb)
 queasy - feeling nauseated
 had it with/sick and tired of - completely annoyed with someone or something
-appalled - horrified with something or someone
 denounce - accuse
 disparage - degrade
 belittle - make someone feel unimportant
@@ -383,3 +380,5 @@ strategic - careful in strategy
 megalomaniac - hungry for power
 affluent - rich
 acclaimed - known for
+test1
+appalled

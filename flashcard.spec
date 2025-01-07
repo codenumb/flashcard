@@ -5,7 +5,7 @@ a = Analysis(
     ['flashcard.py'],
     pathex=[],
     binaries=[],
-    datas=[('words.txt', '.')],
+    datas=[('configs.json', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

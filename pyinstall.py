@@ -6,6 +6,6 @@ PyInstaller.__main__.run(
         '--windowed',
         '--noconsole',
         '--icon=flash-card.ico',
-        '--add-data=words.txt:.'
+        '--add-data=configs.json:.'
     ]
 )
