@@ -6,6 +6,7 @@ from tkhtmlview import HTMLScrolledText
 import os
 import sys
 import json
+import random
 
 def extract_element(soup,name:str,class_:str):
     data=None
@@ -51,6 +52,7 @@ class FlashcardApp:
         self.definition_html = ""  # To store HTML content for the definition
         self.current_word = ''
         self.lines = []
+        self.listBoxPos=[0,0]
 
         if getattr(sys, 'frozen', False):  # Running as a bundled app
             # If running as an exe, use sys._MEIPASS to get the correct path
@@ -78,7 +80,7 @@ class FlashcardApp:
     def initGUI(self):
         self.root = tk.Tk()
         self.root.title("Flashcard App")
-        self.root.geometry("800x600")  # Initial size, will scale with window resizing
+        self.root.geometry("900x600")  # Initial size, will scale with window resizing
         self.wordSrcTkVar=tk.StringVar(value="browse a word source")
         self.newWord=tk.StringVar(value="")
 
@@ -110,7 +112,12 @@ class FlashcardApp:
         self.addWordEntry = tk.Entry(addWordFrame,textvariable=self.newWord,justify='left')
         self.addWordEntry.pack(side=tk.LEFT,padx=5)
 
-        self.addWordButton = tk.Button(addWordFrame,text="Add",command=self.addNewWord)
+        #define button
+        self.defineButton = tk.Button(addWordFrame,text="define",command=self.onClickdefine)
+        self.defineButton.pack(side=tk.LEFT,padx=2)
+
+        #add button
+        self.addWordButton = tk.Button(addWordFrame,text="Add",command=self.OnAddWord)
         self.addWordButton.pack(padx=2)
 
         # Word and Meaning Display (0,2)
@@ -133,8 +140,11 @@ class FlashcardApp:
         buttonFrame.grid(row=1, column=2, padx=50, pady=5, sticky="e")
 
         # Buttons for actions (1,1), (1,2), (1,3)
-        self.rem_button = tk.Button(buttonFrame, text="remove", command=self.removeWord,state="disabled")
+        self.rem_button = tk.Button(buttonFrame, text="remove", command=self.OnRemoveWord,state="disabled")
         self.rem_button.pack(side='left',padx=5)
+
+        self.randomButton = tk.Button(buttonFrame, text="random", command=self.onClickRandom)
+        self.randomButton.pack(side='left',padx=5)
 
         self.prev_button = tk.Button(buttonFrame, text="Previous", command=self.show_previous_word)
         self.prev_button.pack(side='left',padx=5)
@@ -234,6 +244,12 @@ class FlashcardApp:
         # Return the final HTML output
         return output_html
 
+    def onClickdefine(self):
+        word=self.addWordEntry.get()
+        htmlDef = self.get_word_def(word)
+        self.writeFlashCard(htmlDef)
+        self.rem_button.configure(state="disabled")
+
     def loadConfigFile(self):
         with open(self.configFilePath,mode="r+") as configFile:
             try:
@@ -254,13 +270,30 @@ class FlashcardApp:
         with open(self.configJson['word_src_path'], "w") as srcFile:
             srcFile.writelines(self.lines)
 
-    def addNewWord(self):
-        word=self.addWordEntry.get()
+    def scrollListBox(self):
+        self.word_listbox.yview_moveto(self.listBoxPos[0])
+    
+    def clearWordEntry(self):
+        self.addWordEntry.delete(0,tk.END)
+
+    def getWordEntryData(self):
+        return self.addWordEntry.get()
+    
+    def OnAddWord(self):
+        word=self.getWordEntryData()
         self.addToWordFile(f'{word}\n')
         self.readWordSrcFile(self.configJson['word_src_path'])
         self.LoadList()
+        self.scrollListBox()
+        self.clearWordEntry()
     
-    def removeWord(self):
+    def onClickRandom(self):
+        self.current_index = random.choice(range(len(self.words)))
+        self.is_flipped = False
+        self.definition_html = ""  # Reset the definition
+        self.update_card()
+
+    def OnRemoveWord(self):
         remWord,_=self.words[self.current_index]
         for word,_ in self.words:
             if(word == remWord):
@@ -268,6 +301,7 @@ class FlashcardApp:
                 self.readWordSrcFile(self.configJson['word_src_path'])
                 self.LoadList()
                 self.rem_button.configure(state="disabled")
+                self.scrollListBox()
                 break
 
     def write_config_file(self,configs:dict):
@@ -337,17 +371,20 @@ class FlashcardApp:
         self.write_config_file(self.configJson)
 
         print(self.wordSrcTkVar)
+
+    def writeFlashCard(self,htmlData):
+        self.card_text.delete(1.0,tk.END)
+        self.card_text.set_html(htmlData)
     
     def update_card(self):
         """Update the card with the current word or meaning."""
-        word, meaning = self.words[self.current_index]
+        word, _ = self.words[self.current_index]
         self.definition_html = self.get_word_def(word)
-        self.card_text.delete(1.0, tk.END)  # Clear previous content
         if self.is_flipped:
             # print(self.definition_html)
-            self.card_text.set_html(self.definition_html)
+            self.writeFlashCard(self.definition_html)
         else:
-            self.card_text.set_html( word)
+            self.writeFlashCard(word)
 
     def flip_card(self):
         """Flip the card to show the meaning or the word."""
@@ -381,6 +418,8 @@ class FlashcardApp:
 
     def on_word_select(self, event):
         """Called when the user selects a word from the Listbox."""
+        #save yview
+        self.listBoxPos = self.word_listbox.yview()
         # Get the index of the selected word
         selected_index = self.word_listbox.curselection()
         if selected_index:
